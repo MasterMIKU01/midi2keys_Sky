@@ -30,7 +30,9 @@ python midi2keys.py
 - 设备选择：显示“序号 名称 | 标识”，支持“输入序号”或“输入名称子串的唯一匹配”
 - 模式选择：1.press 2.tap 3.hold 4.monitor
 - 注入后端：1.auto 2.sendinput 3.keybd
-- 日志级别：1.DEBUG 2.INFO 3.WARNING 4.ERROR
+- 日志模式：1.DEBUG 2.INFO 3.NOLOG
+  - 提示：推荐选择 auto；少数应用不兼容可选 keybd；需要严格键盘行为可选 sendinput
+  - 提示：推荐 INFO；演出/录制选 NOLOG；排障选 DEBUG
 
 随后会显示“程序运行中，按 Ctrl+C 退出”，开始工作。
 
@@ -150,7 +152,9 @@ python midi2keys.py
 - Device: shows “index name | id”, select by index or unique name substring
 - Mode: 1.press 2.tap 3.hold 4.monitor
 - Injection backend: 1.auto 2.sendinput 3.keybd
-- Log level: 1.DEBUG 2.INFO 3.WARNING 4.ERROR
+- Log mode: 1.DEBUG 2.INFO 3.NOLOG
+  - Tip: choose auto by default; try keybd if some apps misbehave; sendinput for strict keyboard behavior
+  - Tip: INFO recommended; use NOLOG for performance/clean window; DEBUG for troubleshooting
 
 Then it prints “Running... press Ctrl+C to exit” and starts working.
 
