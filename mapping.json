@@ -1,6 +1,4 @@
 {
-  "device": "",
-  "mode": "press",
   "tap_ms": 0,
   "velocity_threshold": 1,
   "channel": null,

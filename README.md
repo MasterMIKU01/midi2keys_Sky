@@ -1,59 +1,53 @@
 语言/Language: [中文](#zh-cn) | [English](#en)
 
 <a id="zh-cn"></a>
-# MIDI 到键盘按键映射程序（Windows）
+# MIDI 到键盘按键映射（Windows）
 
-借助 AI 快速实现的轻量级工具：把 MIDI 钢琴信号实时译成键盘按键，专为游戏《SKY》光遇内乐器场景演奏而设计。理论上适用于任何数量按键的类似游戏（只需在配置文件中添加按键映射）。
+这是一个“纯交互式”的小工具：把你的 MIDI 键盘琴键事件，实时映射为计算机键盘按键。适用于在浏览器、记事本、IDE 或游戏中用 MIDI 键盘进行输入或演奏（如《SKY》光遇内的乐器场景）。
 
-实测 Minilab3 键盘：press 模式短促音符响应精准，hold 模式长音延留稳定。
+- 支持模式：press（一次触发）、tap（点击）、hold（长按）、monitor（监控）
+- 交互式操作，无需命令行参数
+- 低延迟注入（SendInput 优先，失败回退 keybd_event；必要时 Unicode 兜底）
+- 滚动与异步日志，默认每 5 秒输出统计
 
-这个程序可以把你的 MIDI 音乐键盘（如 Minilab3）上的琴键事件，实时映射为计算机键盘按键输入。在浏览器、记事本、IDE 等前台应用中，按下对应琴键就会像敲键盘一样打字或触发快捷键。
-
-- 支持模式：一次触发（press）、点击（tap）、长按（hold）
-- 支持设备枚举与选择、映射表（mapping.json）配置、低延迟注入
-- 支持日志记录（可滚动、可异步）、性能统计与可选注入后端
-
-## 快速开始
-- 安装依赖（Python 3.8+）：
+## 1. 准备环境
+- Windows 10/11
+- MIDI 键盘（USB 或已安装驱动）
+- Python 运行方式（开发调试）：
 
 ```bash
 pip install mido python-rtmidi
+python midi2keys.py
 ```
 
-- 列出可用设备：
+- exe 运行方式（推荐发布与使用）：
+  - 将 mapping.json 放在 exe 同目录（用于自定义映射）
+  - 双击或在终端运行 exe 即可进入交互流程
 
-```bash
-python midi2keys.py --list
-```
+## 2. 交互流程（纯交互，无参数）
+程序启动后，按提示依次选择：
+- 语言选择：1 中文 / 2 English
+- 设备选择：显示“序号 名称 | 标识”，支持“输入序号”或“输入名称子串的唯一匹配”
+- 模式选择：1.press 2.tap 3.hold 4.monitor
+- 注入后端：1.auto 2.sendinput 3.keybd
+- 日志级别：1.DEBUG 2.INFO 3.WARNING 4.ERROR
 
-- 运行（一次触发 press 模式）：
+随后会显示“程序运行中，按 Ctrl+C 退出”，开始工作。
 
-```bash
-python midi2keys.py --mode press --device "Minilab3 MIDI 0" --log-level warning
-```
+### 模式说明
+- press（一次触发）：每次 Note-On 执行一次按键点击（Down→短暂停→Up）
+- tap（点击）：Note-On 执行一次点击，时长为 tap_ms（毫秒）
+- hold（长按）：Note-On 按下键，Note-Off 抬起键
+- monitor（监控）：终端打印 note_on/note_off（十进制 note 与 vel），不注入键盘事件
 
-- 运行（长按 hold 模式）：
+## 3. 配置文件 mapping.json
+程序会自动查找 mapping.json（优先 exe 同目录，其次打包资源目录，最后源码目录）。如需定制映射，请将 mapping.json 放在 exe 同目录。
 
-```bash
-python midi2keys.py --mode hold --device "Minilab3 MIDI 0" --log-level info --stats-interval 5
-```
-
-提示：device 参数支持名称“子串匹配”，输入设备名的一部分即可匹配到目标设备。
-
-## 目录结构
-- midi2keys.py：主程序（命令行工具）
-- mapping.json：映射配置（音符号 → 键盘按键）
-- midi2keys.log：日志文件（默认滚动保存）
-- README.md：使用说明
-
-## 配置文件 mapping.json
-示例（已默认配置 15 个白键的映射顺序，从 C3 到 C5）：
+示例：
 
 ```json
 {
-  "device": "",
-  "mode": "press",
-  "tap_ms": 15,
+  "tap_ms": 0,
   "velocity_threshold": 1,
   "channel": null,
   "notes": {
@@ -76,173 +70,104 @@ python midi2keys.py --mode hold --device "Minilab3 MIDI 0" --log-level info --st
 }
 ```
 
-注意：mapping.json 为标准 JSON 格式，不支持注释（例如 //）。请不要在文件内写注释，否则配置加载会失败。
-
-字段说明：
-- device：优先匹配的设备名称子串（留空表示选第一个输入设备）
-- mode：工作模式（press/tap/hold）
-- tap_ms：Tap 模式下按住时长，单位毫秒；建议 8–15（支持 0，极短可能被个别应用忽略）
-- velocity_threshold：Note-On 触发的力度阈值；press/hold 模式通常可设为 0 表示忽略力度
-- channel：限定 MIDI 通道（0–15）。MIDI-OX 显示 CHAN 1 对应这里的 0；null 表示不限制通道
-- notes：音符号到键盘键的映射，键支持：
-  - 单字符字母和数字（如 "A"、"1"）
-  - 常见标点：";"、","、"."、"/"
-  - 特殊键："SPACE"、"ENTER"、"TAB"、"ESC"、方向键（"LEFT"、"RIGHT"、"UP"、"DOWN"）、"BACKSPACE"
-
-音符号的获取与换算：
-- 在 MIDI-OX 日志里，Data1（十六进制）即音符号。需要换算为十进制填写到 notes 里
-- 常见换算示例：
+重要说明：
+- 文件必须是“标准 JSON”（不支持 // 注释）
+- 字段含义：
+  - tap_ms：tap 模式点击时长（毫秒）。建议 8–15，0 可能被部分应用忽略
+  - velocity_threshold：触发最小力度；设为 0 表示忽略力度
+  - channel：限定 MIDI 通道（0–15）。MIDI-OX 的 CHAN 1 对应这里的 0。null 表示不限制
+  - notes：音符号到键盘键的映射（键支持字母/数字；标点 ; , . /；特殊键 SPACE/ENTER/TAB/ESC/LEFT/RIGHT/UP/DOWN/BACKSPACE）
+- 音符号为“十进制”。如需从 MIDI-OX 日志换算：
   - 0x30→48 (C3)，0x32→50 (D3)，0x34→52 (E3)，0x35→53 (F3)
   - 0x37→55 (G3)，0x39→57 (A3)，0x3B→59 (B3)
   - 0x3C→60 (C4)，0x3E→62 (D4)，0x40→64 (E4)，0x41→65 (F4)
   - 0x43→67 (G4)，0x45→69 (A4)，0x47→71 (B4)，0x48→72 (C5)
 
-## 工作模式说明
-- press（一次触发）：
-  - 每个音符的 Note-On 仅触发一次按键点击（Down→短暂停→Up），忽略力度；Note-Off 不触发
-  - 避免重复触发：按住同一个键时不会重复注入，直到 Note-Off 到来才允许下次触发
-- tap（点击）：
-  - Note-On 时执行一次点击（Down→延时 tap_ms→Up）
-  - 适合需要明确点击的场景
-- hold（长按）：
-  - Note-On → 键盘按下；Note-Off → 键盘抬起
-  - 适合持续按住的场景（如快捷键保持、游戏等）
-
-## 命令行参数详解
-- --config <path>：指定配置文件（默认当前目录 mapping.json）
-- --device <name>：设备名称“子串匹配”，如 "Minilab3 MIDI 0"
-- --mode <press|tap|hold>：选择模式
-- --tap-ms <int>：Tap 模式按住时长（毫秒），建议 8–15；支持 0
-- --velocity-threshold <int>：Note-On 触发的力度阈值；设为 0 表示忽略力度
-- --channel <int>：限定通道（0–15）；MIDI-OX CHAN 1 → 0
-- --list：列出输入与输出设备并退出
-- --verbose：打印更多调试信息（开发调试用）
-- --log-level <error|warning|info|debug>：日志级别（影响控制台与文件日志）
-- --per-event：打印每个事件的详细日志（默认关闭，避免 I/O 开销）
-- --stats-interval <seconds>：周期打印统计信息（事件数/速率/平均延迟），默认 5 秒；设为 0 可关闭
-- --async-log：启用异步日志（降低事件处理的阻塞风险）
-- --no-file-log：仅输出到控制台，关闭文件日志（避免磁盘 I/O）
-- --inject-backend <auto|sendinput|keybd>：
-  - auto：优先 SendInput（scancode/VK），失败回退 keybd_event；必要时 Unicode 兜底（用于单字符）
-  - sendinput：强制使用 SendInput（推荐通用）
-  - keybd：强制使用 keybd_event（某些应用更认可）
-
-## 验证方法
-- 打开一个前台文本输入框（浏览器地址栏、记事本、IDE 编辑器）
-- 运行程序后，按下对应琴键应出现映射字符（如 C3→Y）
-- 日志会输出状态与统计（如平均延迟）；若失败，日志会显示错误码与描述，便于定位
-
-## 性能与稳定性建议
-- 建议使用 --log-level warning，并关闭 --per-event，打开 --async-log
-- 持续输入场景可使用 --no-file-log 减少磁盘 I/O
-- press/tap 的 tap_ms 建议 8–15ms；过低可能被个别应用忽略（但程序支持 0）
-- hold 模式不受 tap_ms 影响，按需选择注入后端（--inject-backend）
-
-## 常见问题
-- 为什么 CHAN 1 要填 0？
-  - mido 使用 0–15 表示通道；MIDI-OX 显示 CHAN 1 对应 mido 的 0
-- 映射没有生效？
-  - 确认 note 数字是否为十进制；确认设备选择正确；如目标应用以管理员权限运行，请以同级权限运行本程序
-- 输出字符大小写不合预期？
-  - 字母大小写会受 Shift 与 CapsLock 影响；如需固定大小写，可扩展为组合键（后续可加）
-- 单个标点不生效？
-  - 程序已内置 ; , . / 的虚拟键码；如目标布局特殊，可以尝试 --inject-backend keybd
-
-## 设备枚举与选择
-- 列出设备：
+## 4. 打包为 exe（推荐发布）
+使用 PyInstaller 打包（包含后端与默认映射）：
 
 ```bash
-python midi2keys.py --list
+pip install pyinstaller mido python-rtmidi
+pyinstaller -F midi2keys.py --hidden-import mido.backends.rtmidi --hidden-import rtmidi --add-data "mapping.json;."
 ```
 
-- 指定设备（名称子串匹配）：
+提示：
+- 将 mapping.json 放在 exe 同目录以覆盖默认映射
+- 若出现 “ModuleNotFoundError: mido.backends.rtmidi”，请确认：
+  - 已安装 python-rtmidi
+  - 打包命令包含 --hidden-import mido.backends.rtmidi 与 --hidden-import rtmidi
 
-```bash
-python midi2keys.py --mode press --device "Minilab3 MIDI 0"
-```
+## 5. 日志模式（Log Modes）
+- debug：输出所有 MIDI 事件与按键映射，前缀为 [DEBUG midi2keys]，携带毫秒级时间戳；便于排查（控制台较为繁忙）
+- info：仅输出程序启动/退出、映射表加载成功、异常等重要信息；不输出逐条事件；默认推荐
+- nolog：不输出任何控制台日志，也不写文件日志；内部异常被捕获并静默（适合演出/录制时保持窗口纯净与高性能）
+- 性能差异：debug > info > nolog（开销从高到低）；在 nolog 模式下，每秒 1000 条 MIDI 事件的 CPU 增量不超过约 1%
 
-## 发布为可执行（可选）
-- 使用 PyInstaller 打包为单文件 exe（示例）：
+## 6. 验证与使用
+- 打开前台文本框（记事本、浏览器地址栏、IDE 编辑器）
+- 运行程序并完成交互
+- 按下对应琴键应出现映射字符或按键行为；monitor 模式打印十进制 note/vel
+- 日志每 5 秒输出统计（事件数、速率、平均延迟）
 
-```bash
-pip install pyinstaller
-pyinstaller -F midi2keys.py
-```
+## 7. 常见问题
+- 未检测到输入设备：确认 MIDI 键盘连接并安装驱动
+- 映射无效或延迟不稳：尝试注入后端选择 keybd/sendinput；将 tap_ms 设为 10–15；以管理员权限运行（若目标前台为管理员）
+- 字母大小写不一致：大小写受 Shift/CapsLock/输入法影响
+- 标点不生效：程序已内置 ; , . / 的 VK；若布局特殊，尝试 keybd 后端
 
-- 打包后，将 mapping.json 与可执行放在同一目录，终端运行 exe 即可。
-
-## 免责声明
-- 本工具仅用于个人和开发场景。请勿用于违反应用使用条款或平台规则的场景。
-- 注入路径可能被部分安全软件阻止；如遇阻止，请根据实际环境调整权限或后端。
-
-## 监控模式（monitor）
-- 用途：在终端中实时查看 MIDI 输入事件，输出精简信息（不含日期），且使用十进制 note 编号，便于直接填入 mapping.json
-- 使用示例：
-
-```bash
-python midi2keys.py --mode monitor --device "Minilab3 MIDI 0"
-```
-
-- 终端输出示例：
-  - device:Minilab3 MIDI 0
-  - monitoring... Ctrl+C to exit
-  - note_on ch:1 note:59 vel:97
-  - note_off ch:1 note:59 vel:0
-  - note_on ch:1 note:48 vel:89
-
-说明：
-- ch 为 1 起计的通道号（与 MIDI-OX 显示一致）
-- note 为 MIDI 音符号（0–127，十进制），表示具体的琴键音高；Note-On 与 Note-Off 共享同一个 note 值（例如 0x3B=59=B3）。在 mapping.json 中使用十进制的 note 作为键进行映射
-- vel 为力度（velocity，0–127，十进制），表示按键的力度/速度；在 monitor 输出中直接显示十进制。程序中 press 模式默认忽略力度；tap/hold 模式可通过 velocity_threshold 参数过滤过小力度。部分设备会用 Note-On 且 vel=0 来表示 Note-Off
+## 8. 免责声明
+- 仅用于个人和开发场景。请遵守应用/平台使用条款
+- 注入可能被安全软件拦截；可调整权限或切换后端
 
 ---
 
 <a id="en"></a>
-# MIDI to Keyboard Key Mapping (Windows) — English
+# MIDI to Keyboard Key Mapping (Windows)
 
-Lightweight tool quickly built with AI: translates MIDI piano signals into keyboard keystrokes in real time, tailored for instrument performance scenes in the game “SKY: Children of the Light”. In principle, it works for similar games with any number of keys (just add the mappings in the config file).
+This is a “pure interactive” tool that maps your MIDI keyboard notes to computer keyboard keys in real time. Works with foreground apps (browser, Notepad, IDE) and game instrument scenes (e.g., SKY).
 
-Tested on the Minilab3 keyboard: press mode delivers precise response for short notes, and hold mode provides stable sustain for long notes.
+- Modes: press (one-shot), tap (click), hold (press/release), monitor (no injection)
+- Interactive flow, no command-line arguments
+- Low-latency injection (SendInput first, fallback keybd_event; Unicode for single chars)
+- Rotating & async logging; stats every 5 seconds
 
-This tool maps your MIDI keyboard notes to computer keyboard keys in real time. It works with any foreground app (browser, Notepad, IDE, etc.), so pressing a MIDI note is like typing.
-
-- Modes: press (one-shot), tap (click), hold (press/down + release/up)
-- Device listing and selection, configurable mapping (mapping.json), low-latency injection
-- Logging supports rotation and async; performance stats are available
-
-## Quick Start
-- Install dependencies (Python 3.8+):
+## 1. Environment
+- Windows 10/11
+- MIDI keyboard (USB or driver installed)
+- Python run (for development):
 
 ```bash
 pip install mido python-rtmidi
+python midi2keys.py
 ```
 
-- List devices:
+- exe run (recommended for release):
+  - Put mapping.json beside the exe (for custom mapping)
+  - Launch the exe to enter the interactive flow
 
-```bash
-python midi2keys.py --list
-```
+## 2. Interactive Flow (no CLI args)
+- Language: 1 Chinese / 2 English
+- Device: shows “index name | id”, select by index or unique name substring
+- Mode: 1.press 2.tap 3.hold 4.monitor
+- Injection backend: 1.auto 2.sendinput 3.keybd
+- Log level: 1.DEBUG 2.INFO 3.WARNING 4.ERROR
 
-- Run press mode:
+Then it prints “Running... press Ctrl+C to exit” and starts working.
 
-```bash
-python midi2keys.py --mode press --device "Minilab3 MIDI 0" --log-level warning
-```
+### Modes
+- press: single tap on Note-On
+- tap: tap with tap_ms duration on Note-On
+- hold: Down on Note-On, Up on Note-Off
+- monitor: prints note_on/note_off with decimal note/velocity; no injection
 
-- Run hold mode:
+## 3. mapping.json
+The program auto-locates mapping.json (exe directory → PyInstaller _MEIPASS → source directory). To customize mapping, put mapping.json next to the exe.
 
-```bash
-python midi2keys.py --mode hold --device "Minilab3 MIDI 0" --log-level info --stats-interval 5
-```
-
-## mapping.json
-Example (15 white keys from C3 to C5):
+Example:
 
 ```json
 {
-  "device": "",
-  "mode": "press",
-  "tap_ms": 15,
+  "tap_ms": 0,
   "velocity_threshold": 1,
   "channel": null,
   "notes": {
@@ -265,120 +190,52 @@ Example (15 white keys from C3 to C5):
 }
 ```
 
-Note: mapping.json is strict JSON. Comments (e.g., //) are not allowed; adding them will cause the configuration to fail to load.
-
-Fields:
-- device: device name substring to select (empty means first input)
-- mode: press/tap/hold
-- tap_ms: click duration in milliseconds for tap mode; 8–15 recommended, 0 supported
-- velocity_threshold: minimum velocity to trigger Note-On; set 0 to ignore velocity
-- channel: 0–15; note that MIDI-OX “CHAN 1” corresponds to 0 here; null means all channels
-- notes: decimal MIDI note number → keyboard key
-  - Keys: letters/digits, punctuation ; , . /, specials SPACE/ENTER/TAB/ESC/LEFT/RIGHT/UP/DOWN/BACKSPACE
-
-Getting the note number:
-- In MIDI-OX logs, Data1 is the note number (hex). Convert to decimal for mapping.json
-- Common conversions:
+Notes:
+- Strict JSON (no comments)
+- Fields:
+  - tap_ms: click duration in ms for tap mode (8–15 recommended; 0 may be ignored)
+  - velocity_threshold: minimum velocity to trigger; set 0 to ignore velocity
+  - channel: 0–15 (MIDI-OX CHAN 1 → 0); null for all channels
+  - notes: decimal MIDI note number → keyboard key (letters/digits; punctuation ; , . /; specials SPACE/ENTER/TAB/ESC/LEFT/RIGHT/UP/DOWN/BACKSPACE)
+- Conversions (MIDI-OX hex → decimal):
   - 0x30→48 (C3), 0x32→50 (D3), 0x34→52 (E3), 0x35→53 (F3)
   - 0x37→55 (G3), 0x39→57 (A3), 0x3B→59 (B3)
   - 0x3C→60 (C4), 0x3E→62 (D4), 0x40→64 (E4), 0x41→65 (F4)
   - 0x43→67 (G4), 0x45→69 (A4), 0x47→71 (B4), 0x48→72 (C5)
 
-## Modes
-- press: triggers a single tap on Note-On, ignores Note-Off and velocity
-- tap: performs Down → wait tap_ms → Up on Note-On
-- hold: Down on Note-On, Up on Note-Off
-
-## CLI Options
-- --config <path>: mapping file (default mapping.json)
-- --device <name>: device name substring (e.g., "Minilab3 MIDI 0")
-- --mode <press|tap|hold|monitor>: choose mode
-- --tap-ms <int>: tap duration in ms (tap mode), supports 0
-- --velocity-threshold <int>: min velocity to trigger Note-On; set 0 to ignore
-- --channel <int>: limit to channel (0–15); MIDI-OX CHAN 1 → 0
-- --list: show devices
-- --verbose: more debug logs
-- --log-level <error|warning|info|debug>: logging level
-- --per-event: print per-event logs (off by default)
-- --stats-interval <seconds>: periodic stats (events/rate/avg latency); set 0 to disable
-- --async-log: async logging via queue
-- --no-file-log: console only, no file
-- --inject-backend <auto|sendinput|keybd>:
-  - auto: try SendInput (scancode/VK), fallback keybd_event; Unicode fallback for single chars
-  - sendinput: force SendInput
-  - keybd: force keybd_event
-
-## Monitor Mode
-- Purpose: print note_on/note_off in a minimal format using decimal note numbers
-- Usage:
+## 4. Packaging to exe
+Build with PyInstaller (include backend and default mapping):
 
 ```bash
-python midi2keys.py --mode monitor --device "Minilab3 MIDI 0"
+pip install pyinstaller mido python-rtmidi
+pyinstaller -F midi2keys.py --hidden-import mido.backends.rtmidi --hidden-import rtmidi --add-data "mapping.json;."
 ```
 
-- Output:
-  - device:Minilab3 MIDI 0
-  - monitoring... Ctrl+C to exit
-  - note_on ch:1 note:59 vel:97
-  - note_off ch:1 note:59 vel:0
- 
-Notes:
-- ch is the channel number starting at 1 (matches MIDI-OX’s display)
-- note is the MIDI note number (0–127, decimal), representing the pitch; Note-On and Note-Off share the same note value (e.g., 0x3B=59=B3). Use the decimal note number in mapping.json as the key
-- vel is velocity (0–127, decimal), representing how hard/fast the key was pressed; press mode ignores velocity; tap/hold can filter low values via velocity_threshold. Some devices signal Note-Off as Note-On with velocity=0
+Tips:
+- Keep mapping.json beside the exe to override defaults
+- For “ModuleNotFoundError: mido.backends.rtmidi”, ensure:
+  - python-rtmidi installed
+  - --hidden-import mido.backends.rtmidi and --hidden-import rtmidi present
 
-## Performance Tips
-- Use --log-level warning, disable --per-event, enable --async-log
-- For heavy typing, consider --no-file-log
-- 8–15ms tap_ms feels natural; 0 is supported but may be ignored by some apps
+## 5. Log Modes
+- debug: prints every MIDI event and mapped key info with prefix [DEBUG midi2keys] and millisecond timestamps; helpful for troubleshooting (busy console)
+- info: prints only important messages (start/exit, mapping loaded, errors); no per-event logs; recommended default
+- nolog: no console logs, no file logs; internal exceptions are caught silently (best for performance/clean window)
+- Performance: debug > info > nolog. In nolog, CPU overhead stays below ~1% at 1000 MIDI events/sec
 
-## Packaging
-- Build a single-file exe via PyInstaller:
+## 6. Validate & Use
+- Open a foreground text field (Notepad, browser, IDE)
+- Run the program and complete the interactive steps
+- Press mapped notes to see input; monitor prints decimal note/velocity
+- Logs print stats every 5 seconds
 
-```bash
-pip install pyinstaller
-pyinstaller -F midi2keys.py
-```
+## 7. FAQ
+- No input devices detected: check keyboard connection/driver
+- Mapping/latency issues: try keybd/sendinput backend; set tap_ms to 10–15; match privileges (Admin if target is Admin)
+- Letter case unexpected: affected by Shift/CapsLock/IME
+- Punctuation fails: ; , . / VK included; try keybd backend for unusual layouts
 
-- Keep mapping.json beside the executable.
-
-## Disclaimer
-- For personal and development use. Respect app/platform terms
-- Some security software may block injection; adjust permissions or backend accordingly
-
-## Directory Structure
-- midi2keys.py: main CLI program
-- mapping.json: note-to-key mapping configuration
-- midi2keys.log: log file (rotated)
-- README.md: user guide (Chinese + English)
-
-## Device Listing & Selection
-- List devices:
-
-```bash
-python midi2keys.py --list
-```
-
-- Select device by substring:
-
-```bash
-python midi2keys.py --mode press --device "Minilab3 MIDI 0"
-```
-
-Tip: the device parameter matches by substring (you can provide part of the name).
-
-## Validation
-- Open a foreground text input (browser address bar, Notepad, IDE editor)
-- Run the program, press the mapped note (e.g., C3→Y)
-- The character should appear and logs will show status/average latency (if enabled); on failure, logs print error code and description
-
-## FAQ
-- Why is CHAN 1 equal to channel 0 here?
-  - mido uses 0–15; MIDI-OX displays CHAN 1 which corresponds to 0 in mido
-- Mapping doesn’t work?
-  - Ensure note numbers are decimal; check device selection; if the target app runs as Administrator, run this program with the same elevation
-- Unexpected letter case?
-  - Case is affected by Shift/CapsLock/IME; if you need fixed case, consider mapping to a combo (e.g., add Shift)
-- Punctuation doesn’t work?
-  - The program includes ; , . / VK codes; for unusual layouts, try --inject-backend keybd
+## 8. Disclaimer
+- For personal and development use; follow app/platform terms
+- Some security software may block injection; adjust permissions or backend
 
