@@ -29,10 +29,12 @@ python midi2keys.py
 - 语言选择：1 中文 / 2 English
 - 设备选择：显示“序号 名称 | 标识”，支持“输入序号”或“输入名称子串的唯一匹配”
 - 模式选择：1.press 2.tap 3.hold 4.monitor
-- 注入后端：1.auto 2.sendinput 3.keybd
+- 注入后端：1.auto 2.sendinput 3.keybd 4.interception（需安装 Interception 驱动）
 - 日志模式：1.DEBUG 2.INFO 3.NOLOG
   - 提示：推荐选择 auto；少数应用不兼容可选 keybd；需要严格键盘行为可选 sendinput
   - 提示：推荐 INFO；演出/录制选 NOLOG；排障选 DEBUG
+  - 若选择 interception：输入键盘设备索引（1–10，默认 1）
+  - 若不确定索引：按回车执行“自动探测”，将记事本置前，程序会依次发送测试按键并显示探测到的索引
 
 随后会显示“程序运行中，按 Ctrl+C 退出”，开始工作。
 
@@ -41,6 +43,8 @@ python midi2keys.py
 - tap（点击）：Note-On 执行一次点击，时长为 tap_ms（毫秒）
 - hold（长按）：Note-On 按下键，Note-Off 抬起键
 - monitor（监控）：终端打印 note_on/note_off（十进制 note 与 vel），不注入键盘事件
+- 限制：实测 hold 模式下同时输入超过约 8 个 MIDI 信号会出现未完全注入的情况；press 模式可支持更多并发输入
+- 建议：tap_ms 设为约 15ms 以确保目标应用能稳定检测到点击
 
 ## 3. 配置文件 mapping.json
 程序会自动查找 mapping.json（优先 exe 同目录，其次打包资源目录，最后源码目录）。如需定制映射，请将 mapping.json 放在 exe 同目录。
@@ -99,6 +103,22 @@ pyinstaller -F midi2keys.py --hidden-import mido.backends.rtmidi --hidden-import
   - 已安装 python-rtmidi
   - 打包命令包含 --hidden-import mido.backends.rtmidi 与 --hidden-import rtmidi
 
+## 4.1 安装与风险说明（Interception 驱动）
+- 适用场景：部分游戏客户端会拦截用户态注入（SendInput/keybd_event），interception 通过驱动层模拟“真实键盘”，提升兼容性
+- 项目地址：https://github.com/oblitum/Interception
+- 安装步骤（管理员 PowerShell）：
+  - 可选：开启测试签名（部分系统需要），执行 bcdedit /set testsigning on 后重启；关闭用 bcdedit /set testsigning off
+  - 运行 install-interception.exe /install 安装驱动，卸载 /uninstall
+  - 下载 Release 并解压，获取 install-interception.exe 与 library\\x64\\interception.dll、library\\x86\\interception.dll
+  - DLL 选择与放置：
+    - 架构选择：64 位 Python/exe 用 x64 DLL；32 位 Python/exe 用 x86 DLL（架构查看：python -c "import platform; print(platform.architecture()[0])"）
+    - 放置位置：推荐与 exe 同目录；或加入 PATH；或系统目录 C:\\Windows\\System32（x64）、C:\\Windows\\SysWOW64（x86）
+- 使用：交互中选择注入后端 4.interception
+- 未安装或驱动未就绪：自动探测不可用，程序将使用默认索引 1 或回退；请先安装驱动并重启
+- 风险：
+  - 可能与某些安全软件或反作弊策略冲突；请遵守游戏/平台条款
+  - 需要管理员权限与重启；若驱动不可用会回退到用户态注入
+
 ## 5. 日志模式（Log Modes）
 - debug：输出所有 MIDI 事件与按键映射，前缀为 [DEBUG midi2keys]，携带毫秒级时间戳；便于排查（控制台较为繁忙）
 - info：仅输出程序启动/退出、映射表加载成功、异常等重要信息；不输出逐条事件；默认推荐
@@ -120,6 +140,15 @@ pyinstaller -F midi2keys.py --hidden-import mido.backends.rtmidi --hidden-import
 ## 8. 免责声明
 - 仅用于个人和开发场景。请遵守应用/平台使用条款
 - 注入可能被安全软件拦截；可调整权限或切换后端
+
+## 文件结构说明
+1. midi2keys.exe（主程序，必须置于根目录）
+2. mapping.json（映射配置文件，必须置于根目录）
+3. midi2keys.log（可选日志文件，缺失不影响运行但将关闭日志记录功能）
+4. interception.dll（仅 interception 模式需要，建议与exe同目录）
+
+### interception 模式使用须知
+- interception 驱动及 interception.dll 仅在“注入模式失效”后作为备选方案启用；若默认模式已满足使用需求，**无需安装 interception 驱动**，也**无需放置 interception.dll 文件**。
 
 ---
 
@@ -151,10 +180,12 @@ python midi2keys.py
 - Language: 1 Chinese / 2 English
 - Device: shows “index name | id”, select by index or unique name substring
 - Mode: 1.press 2.tap 3.hold 4.monitor
-- Injection backend: 1.auto 2.sendinput 3.keybd
+- Injection backend: 1.auto 2.sendinput 3.keybd 4.interception (requires Interception driver)
 - Log mode: 1.DEBUG 2.INFO 3.NOLOG
   - Tip: choose auto by default; try keybd if some apps misbehave; sendinput for strict keyboard behavior
   - Tip: INFO recommended; use NOLOG for performance/clean window; DEBUG for troubleshooting
+  - If choose interception: input keyboard device index (1–10, default 1)
+  - If unsure: press Enter to “auto-probe”, bring Notepad foreground; the program sends test keys and prints the detected index
 
 Then it prints “Running... press Ctrl+C to exit” and starts working.
 
@@ -163,6 +194,8 @@ Then it prints “Running... press Ctrl+C to exit” and starts working.
 - tap: tap with tap_ms duration on Note-On
 - hold: Down on Note-On, Up on Note-Off
 - monitor: prints note_on/note_off with decimal note/velocity; no injection
+- Limitation: in hold mode, more than ~8 simultaneous MIDI inputs may not be injected reliably; press mode supports more concurrent inputs
+- Recommendation: set tap_ms to ~15 ms to ensure the target app reliably detects the click
 
 ## 3. mapping.json
 The program auto-locates mapping.json (exe directory → PyInstaller _MEIPASS → source directory). To customize mapping, put mapping.json next to the exe.
@@ -221,6 +254,22 @@ Tips:
   - python-rtmidi installed
   - --hidden-import mido.backends.rtmidi and --hidden-import rtmidi present
 
+## 4.1 Installation & Risks (Interception driver)
+- When some game clients block user-mode injection, Interception simulates “real keyboard” at driver level for better compatibility
+- Project: https://github.com/oblitum/Interception
+- Install steps (Administrator PowerShell):
+  - Optional: enable Test Mode if required: bcdedit /set testsigning on (reboot); disable with bcdedit /set testsigning off
+  - Run install-interception.exe /install to install; /uninstall to remove
+  - Download the Release archive and extract install-interception.exe plus library\\x64\\interception.dll and library\\x86\\interception.dll
+  - DLL selection & placement:
+    - Choose architecture: 64-bit Python/exe → x64 DLL; 32-bit Python/exe → x86 DLL (check: python -c "import platform; print(platform.architecture()[0])")
+    - Placement: recommended beside the exe; or add to PATH; or system dirs C:\\Windows\\System32 (x64) / C:\\Windows\\SysWOW64 (x86)
+- Usage: choose injection backend 4.interception in the interactive flow
+- If driver not installed or not ready: auto-probe is unavailable; the program uses default index 1 or falls back. Install the driver and reboot first
+- Risks:
+  - May conflict with security software or anti-cheat; respect app/platform terms
+  - Requires admin privileges and reboot; if driver not available, it falls back to user-mode injection
+
 ## 5. Log Modes
 - debug: prints every MIDI event and mapped key info with prefix [DEBUG midi2keys] and millisecond timestamps; helpful for troubleshooting (busy console)
 - info: prints only important messages (start/exit, mapping loaded, errors); no per-event logs; recommended default
@@ -242,4 +291,13 @@ Tips:
 ## 8. Disclaimer
 - For personal and development use; follow app/platform terms
 - Some security software may block injection; adjust permissions or backend
+
+## File Structure
+1. midi2keys.exe (main program; must be in the root directory)
+2. mapping.json (mapping config; must be in the root directory)
+3. midi2keys.log (optional log file; missing does not affect running but will disable logging functionality)
+4. interception.dll (only required for interception mode; recommended beside the exe)
+
+### Interception Mode Notes
+- Interception driver and interception.dll are enabled only as a fallback when default injection modes fail; if defaults meet your needs, **no Interception driver installation is needed** and **no interception.dll placement is needed**.
 

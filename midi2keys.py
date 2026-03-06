@@ -21,6 +21,13 @@ try:
     mido.set_backend("mido.backends.rtmidi")
 except Exception:
     pass
+# Optional: Interception driver backend (hardware-like keyboard injection)
+_INTERCEPTION_AVAILABLE = False
+try:
+    import interception  # requires Interception driver and Python bindings
+    _INTERCEPTION_AVAILABLE = True
+except Exception:
+    _INTERCEPTION_AVAILABLE = False
 
 
 INPUT_KEYBOARD = 1
@@ -30,6 +37,93 @@ KEYEVENTF_UNICODE = 0x0004
 MAPVK_VK_TO_VSC = 0
 PTR_ULONG = ctypes.c_ulong if ctypes.sizeof(ctypes.c_void_p) == 4 else ctypes.c_ulonglong
 SCAN_CACHE: Dict[int, int] = {}
+_INTR_DLL = None
+_INTR_CTX = None
+_INTR_DEVICE = 1
+INTERCEPTION_KEY_DOWN = 0x00
+INTERCEPTION_KEY_UP = 0x01
+
+class InterceptionKeyStroke(ctypes.Structure):
+    _fields_ = [("code", ctypes.c_ushort), ("state", ctypes.c_ushort), ("information", ctypes.c_uint)]
+
+class InterceptionStroke(ctypes.Union):
+    _fields_ = [("key", InterceptionKeyStroke)]
+
+def _intr_load():
+    global _INTR_DLL
+    if _INTR_DLL:
+        return True
+    try_paths = []
+    try:
+        exe_dir = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else os.path.dirname(__file__)
+        try_paths.append(os.path.join(exe_dir, "interception.dll"))
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            try_paths.append(os.path.join(meipass, "interception.dll"))
+    except Exception:
+        pass
+    try_paths.append("interception.dll")
+    for p in try_paths:
+        try:
+            _INTR_DLL = ctypes.WinDLL(p)
+            break
+        except Exception:
+            _INTR_DLL = None
+    return _INTR_DLL is not None
+
+def _intr_init():
+    global _INTR_CTX
+    if _INTR_CTX:
+        return True
+    if not _intr_load():
+        return False
+    try:
+        create = _INTR_DLL.interception_create_context
+        create.restype = ctypes.c_void_p
+        _INTR_CTX = create()
+        return bool(_INTR_CTX)
+    except Exception:
+        _INTR_CTX = None
+        return False
+
+def _intr_send_sc(sc: int, down: bool):
+    if not _intr_init():
+        return False
+    try:
+        send = _INTR_DLL.interception_send
+        send.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.POINTER(InterceptionStroke), ctypes.c_size_t]
+        send.restype = ctypes.c_int
+        ks = InterceptionKeyStroke(code=ctypes.c_ushort(sc), state=ctypes.c_ushort(INTERCEPTION_KEY_DOWN if down else INTERCEPTION_KEY_UP), information=ctypes.c_uint(0))
+        st = InterceptionStroke()
+        st.key = ks
+        ret = int(send(_INTR_CTX, int(_INTR_DEVICE), ctypes.byref(st), 1))
+        return ret > 0
+    except Exception:
+        return False
+
+def _intr_probe_device() -> Optional[int]:
+    global _INTR_DEVICE
+    if not _intr_init():
+        return None
+    vks = [0x7C, 0x20, 0x41]
+    sc = 0
+    for vk in vks:
+        sc = get_scan_code(vk)
+        if sc:
+            break
+    if not sc:
+        return None
+    orig = _INTR_DEVICE
+    try:
+        for idx in range(1, 21):
+            _INTR_DEVICE = idx
+            ok1 = _intr_send_sc(sc, True)
+            ok2 = _intr_send_sc(sc, False)
+            if ok1 and ok2:
+                return idx
+    finally:
+        _INTR_DEVICE = orig
+    return None
 
 class KEYBDINPUT(ctypes.Structure):
     _fields_ = [
@@ -184,6 +278,10 @@ def keybd_event_up(vk: int):
     except Exception:
         return False, 87
 def key_down_any(vk: int, backend: str):
+    if backend == "interception":
+        sc = get_scan_code(vk)
+        ok = _intr_send_sc(sc, True)
+        return (True, 0) if ok else (False, 193)
     if backend == "sendinput":
         ok, err = key_down(vk)
         return ok, err
@@ -198,6 +296,10 @@ def key_down_any(vk: int, backend: str):
         return ok2, 0
     return False, err
 def key_up_any(vk: int, backend: str):
+    if backend == "interception":
+        sc = get_scan_code(vk)
+        ok = _intr_send_sc(sc, False)
+        return (True, 0) if ok else (False, 193)
     if backend == "sendinput":
         ok, err = key_up(vk)
         return ok, err
@@ -303,10 +405,20 @@ class MidiMapper:
                         self._onpress.add(note)
                         self._count += 1
                     st = time.perf_counter()
-                    ok, err = key_tap_any(vk, self.tap_ms) if self.backend == "auto" else (
-                        key_tap(vk, self.tap_ms) if self.backend == "sendinput" else
-                        keybd_event_tap(vk, self.tap_ms)
-                    )
+                    if self.backend == "auto":
+                        ok, err = key_tap_any(vk, self.tap_ms)
+                    elif self.backend == "sendinput":
+                        ok, err = key_tap(vk, self.tap_ms)
+                    elif self.backend == "keybd":
+                        ok, err = keybd_event_tap(vk, self.tap_ms)
+                    elif self.backend == "interception":
+                                sc = get_scan_code(vk)
+                                ok1 = _intr_send_sc(sc, True)
+                                time.sleep(max(self.tap_ms, 0) / 1000.0)
+                                ok2 = _intr_send_sc(sc, False)
+                                ok, err = ((True, 0) if (ok1 and ok2) else (False, 193))
+                    else:
+                        ok, err = key_tap_any(vk, self.tap_ms)
                     lat = (time.perf_counter() - st) * 1000.0
                     with self._lock:
                         self._lat_sum += lat
@@ -355,10 +467,18 @@ class MidiMapper:
                     self._count += 1
                 if self.mode == "tap":
                     st = time.perf_counter()
-                    ok, err = key_tap_any(vk, self.tap_ms) if self.backend == "auto" else (
-                        key_tap(vk, self.tap_ms) if self.backend == "sendinput" else
-                        keybd_event_tap(vk, self.tap_ms)
-                    )
+                    if self.backend == "interception":
+                        sc = get_scan_code(vk)
+                        ok1 = _intr_send_sc(sc, True)
+                        time.sleep(max(self.tap_ms, 0) / 1000.0)
+                        ok2 = _intr_send_sc(sc, False)
+                        ok, err = ((True, 0) if (ok1 and ok2) else (False, 193))
+                    elif self.backend == "sendinput":
+                        ok, err = key_tap(vk, self.tap_ms)
+                    elif self.backend == "keybd":
+                        ok, err = keybd_event_tap(vk, self.tap_ms)
+                    else:
+                        ok, err = key_tap_any(vk, self.tap_ms)
                     lat = (time.perf_counter() - st) * 1000.0
                     with self._lock:
                         self._lat_sum += lat
@@ -588,16 +708,67 @@ def main():
             print(t("输入无效，请重新输入", "Invalid input, please try again"))
         # injection backend
         print(t("请选择注入后端：", "Select injection backend:"))
-        print("1.auto  2.sendinput  3.keybd")
+        print("1.auto  2.sendinput  3.keybd  4.interception")
         sel_backend = None
         while True:
             s = input("> ").strip().lower()
-            bmap = {"1": "auto", "2": "sendinput", "3": "keybd",
-                    "auto": "auto", "sendinput": "sendinput", "keybd": "keybd"}
+            bmap = {"1": "auto", "2": "sendinput", "3": "keybd", "4": "interception",
+                    "auto": "auto", "sendinput": "sendinput", "keybd": "keybd", "interception": "interception"}
             if s in bmap:
                 sel_backend = bmap[s]
                 break
             print(t("输入无效，请重新输入", "Invalid input, please try again"))
+        if sel_backend == "interception":
+            print(t("请选择 Interception 键盘设备索引(1-10，默认1，回车实时自动探测)：", "Select Interception keyboard device index (1-10, default 1, press Enter for live auto-probe):"))
+            idx = 1
+            while True:
+                s = input("> ").strip()
+                if s == "":
+                    if not (_intr_load() and _intr_init()):
+                        print(t("Interception 驱动未就绪，使用默认设备索引 1", "Interception driver not available, using default index 1"))
+                        break
+                    print(t("请在你的 MIDI 键盘上按任意键，正在自动探测...", "Press any key on your MIDI keyboard, live auto-probing..."))
+                    done = {"ok": False, "idx": None}
+                    def _live_cb(msg):
+                        if getattr(msg, "type", "") == "note_on":
+                            probed = _intr_probe_device() if "_intr_probe_device" in globals() else None
+                            if probed:
+                                done["ok"] = True
+                                done["idx"] = probed
+                    port = None
+                    try:
+                        port = mido.open_input(sel_name, callback=_live_cb)
+                        start = time.time()
+                        while (time.time() - start) < 8.0 and not done["ok"]:
+                            time.sleep(0.05)
+                    except Exception:
+                        pass
+                    finally:
+                        try:
+                            if port:
+                                port.close()
+                        except Exception:
+                            pass
+                    if done["ok"] and done["idx"]:
+                        idx = int(done["idx"])
+                        print(t(f"已探测到设备索引：{idx}", f"Detected device index: {idx}"))
+                    else:
+                        print(t("未在 8 秒内探测到可用设备，回退到静态探测...", "No device detected within 8s, falling back to static probe..."))
+                        probed = _intr_probe_device() if "_intr_probe_device" in globals() else None
+                        if probed:
+                            idx = probed
+                            print(t(f"已探测到设备索引：{idx}", f"Detected device index: {idx}"))
+                        else:
+                            print(t("未探测到可用设备，使用默认 1", "No device detected, using default 1"))
+                    break
+                if s.isdigit():
+                    v = int(s)
+                    if 1 <= v <= 20:
+                        idx = v
+                        break
+                print(t("输入无效，请重新输入", "Invalid input, please try again"))
+            global _INTR_DEVICE
+            _INTR_DEVICE = idx
         # log mode
         print(t("请选择日志模式：", "Select log mode:"))
         print("1.DEBUG  2.INFO  3.NOLOG")
